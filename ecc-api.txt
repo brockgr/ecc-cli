@@ -1,0 +1,42 @@
+Elgato Control Center API extracted from the streamdeck plugin:
+   ~/Library/Application Support/com.elgato.StreamDeck/Plugins/com.elgato.controlcenter.sdPlugin/js/ControlCenterClient.js
+
+It's a json_rpc API over websocket. Server listens on the first available port 
+between 1804 and 1813 on the loopback interface.
+
+There is no authentication, but the following header seems to be needed
+(most websocket tools do not set it exactly like this):
+
+  Origin: file://
+
+Methods:
+
+  appinfo = getApplicationInfo(()
+    e.g. {dappID': 'eccm', 'build': 10315, 'interfaceRevision': 1, 'name': 'Elgato Control Center', 'version': '1.1.2'}
+
+  devices = getDevices()
+    e.g. [{'deviceID': 'SERIALNO', 'name': 'Elgato Key Light XXXX', 'type': 53}]
+    *  53 = Elgato Key Light - allowed
+    *  54 = Eve Light Strip.
+    *  57 = Elgato Light Strip (old firmware)
+    *  70 = Elgato Light Strip (new firmware)
+    * 200 = Elgato Key Light Air - allowed
+
+  config = getDeviceConfiguration(deviceID='SERIALNO')
+    e.g. {'deviceID': 'SERIALNO', 'lights': {'brightness': 50, 'on': False, 'temperature': 4695, 'temperatureMax': 6993, 'temperatureMin': 2907}}
+
+  error = setDeviceConfiguration(config)
+     e.g. "None"
+
+
+Events:
+
+  applicationClosing(deviceID, lights) // Actually - no args
+
+  deviceAdded(deviceID, type, name)
+
+  deviceRenamed(deviceID, name, type)
+
+  deviceRemoved(deviceID, type, name)
+
+  deviceConfigurationChanged(deviceID, lights)

@@ -1,0 +1,146 @@
+#!/usr/local/bin/python3
+
+# To make this work on os-x:
+# pip3 install jsonrpc-websocket
+
+import asyncio
+import json
+from jsonrpc_websocket import Server, TransportError
+import argparse
+
+server = None
+loop = asyncio.get_event_loop()
+
+async def connect():
+    # Service will take first available port in range
+    for port in range(1804, 1814):
+        # Seems like eccm authenticates based on "origin" header
+        server = Server('ws://localhost:%s'%port, headers={'origin': 'file://'})
+        try:
+            await server.ws_connect()
+            #print(json.dumps({'connection_port': port}))
+            return server
+        except TransportError as err:
+            #print(err)
+            await server.close()
+            await server.session.close()
+
+    print("Could not find Elgato Control Center interface")
+
+
+async def disconnect(server):
+    await server.close()
+    await server.session.close()
+
+
+def applicationClosing():
+    print(json.dumps({'event': 'applicationClosing'}))
+    loop.stop()
+
+def deviceAdded(deviceID, type, name):
+    print(json.dumps({'event': 'deviceAdded', 'deviceID': deviceID, 'type': type, 'name': name}))
+
+def deviceRenamed(deviceID, name, type):
+    print(json.dumps({'event': 'deviceRenamed', 'deviceID': deviceID, 'name': name, 'type': type}))
+
+def deviceRemoved(deviceID, type, name):
+    print(json.dumps({'event': 'deviceRemoved', 'deviceID': deviceID, 'type': type, 'name': name}))
+
+def deviceConfigurationChanged(deviceID, lights):
+    print(json.dumps({'event': 'deviceConfigurationChanged', 'deviceID': deviceID, 'lights': lights}))
+
+
+async def watch(server):
+    server.applicationClosing = applicationClosing
+    server.deviceAdded = deviceAdded
+    server.deviceRenamed = deviceRenamed
+    server.deviceRemoved = deviceRemoved
+    server.deviceConfigurationChanged = deviceConfigurationChanged
+    
+
+async def get_appinfo(server):
+    appinfo = await server.getApplicationInfo()
+    print(appinfo)
+
+
+async def get_devices(server):
+    devices = map(lambda d: d["deviceID"], await server.getDevices())
+    return devices
+
+
+async def list(server):
+    devices = await server.getDevices()
+    print(devices)
+
+
+async def get(server, devices):
+    for device in devices:
+      config = await server.getDeviceConfiguration(deviceID=device)
+      print(config)
+    
+
+async def set(server, devices, power, brightness, temperature):
+    for device in devices:
+        config = await server.getDeviceConfiguration(deviceID=device)
+
+        print(power) 
+        if power == "on":
+            config["lights"]["on"] = True
+        elif power == "off":
+            config["lights"]["on"] = False
+        elif power == "toggle":
+            config["lights"]["on"] = not config["lights"]["on"]
+
+        if brightness is not None:
+            config["lights"]["brightness"] = brightness
+            
+        if temperature is not None:
+            config["lights"]["temperature"] = temperature
+          
+        print(config) 
+        result = await server.setDeviceConfiguration(config)
+
+
+parser = argparse.ArgumentParser(description='Interact with Elgato Control Center.')
+parser.add_argument("-a", "--appinfo", help="Get Elgato CC info", action="store_true")
+parser.add_argument("-l", "--list", help="List all connected devices", action="store_true")
+parser.add_argument("-d", "--device", help="Specify Device ID. May be repeated. Defaults to all devices.", action="append")
+parser.add_argument("-g", "--get", help="Get state of devices", action="store_true")
+parser.add_argument("-p", "--power", help="Change power state", choices=['on','off','toggle'])
+parser.add_argument("-b", "--brightness", help="Set Brightness (0-100)", type=int)
+parser.add_argument("-t", "--temperature", help="Set temperature (2900-7000)", type=int)
+parser.add_argument("-w", "--watch", help="Watch for device events", action="store_true")
+
+args = parser.parse_args()
+
+server = loop.run_until_complete(connect())
+if server:
+    if args.appinfo:
+        loop.run_until_complete(get_appinfo(server))
+    
+    if args.list:
+        loop.run_until_complete(list(server))
+    
+    power = args.power 
+    brightness = args.brightness
+    temperature = args.temperature
+    should_set = power is not None or temperature is not None or brightness is not None
+
+    if args.get or should_set:
+
+        devices = args.device
+        if devices is None:
+            devices = loop.run_until_complete(get_devices(server))
+    
+        if should_set:
+            loop.run_until_complete(set(server, devices, power, brightness, temperature))
+
+        if args.get:
+            devices = loop.run_until_complete(get(server, devices))
+
+    if args.watch:
+        loop.run_until_complete(watch(server))
+        loop.run_forever()
+
+    loop.run_until_complete(disconnect(server))
+
